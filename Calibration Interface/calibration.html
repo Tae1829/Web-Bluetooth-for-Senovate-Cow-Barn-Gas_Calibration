@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cow Barn Sensor - Calibration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        h2 { text-align: center; margin-top: 0; }
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; background-color: #f4f4f9; }
+        .card { background: white; border: 1px solid #ccc; padding: 20px; border-radius: 8px; max-width: 400px; margin: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+
+        button { padding: 10px 15px; margin: 5px 0; cursor: pointer; border-radius: 5px; border: 1px solid #0056b3; background-color: #007bff; color: white; font-weight: bold; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        button.danger { background-color: #dc3545; border-color: #a71d2a; }
+        button.danger:hover { background-color: #a71d2a; }
+        button:disabled { background-color: #cccccc; border-color: #999999; cursor: not-allowed; color: #666666; }
+
+        /* Calibration trigger buttons - amber to signal a special/administrative action */
+        .calib-btn { background-color: #fd7e14; border-color: #c85f00; font-size: 17px; padding: 14px; }
+        .calib-btn:hover { background-color: #c85f00; }
+        .calib-btn:disabled { background-color: #cccccc; border-color: #999999; }
+
+        input { width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+        .status-box { padding: 10px; background: #e9ecef; border-radius: 5px; margin-bottom: 15px; text-align: center; font-weight: bold; }
+
+        /* Warning banner - engineer use only */
+        .warning-banner {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 6px solid #ffc107;
+            color: #856404;
+            padding: 12px 15px;
+            border-radius: 6px;
+            max-width: 400px;
+            margin: 0 auto 20px auto;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .sensor-label { margin: 15px 0 4px 0; font-weight: bold; }
+        .hint { color: #666; font-size: 13px; margin: 4px 0 10px 0; }
+        hr { border: none; border-top: 1px solid #e0e0e0; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="warning-banner">
+        &#9888;&#65039; Calibration Tools &mdash; Engineer Use Only
+    </div>
+
+    <div class="card">
+        <h2>Cow Barn Sensor Calibration</h2>
+
+        <div class="status-box" id="status">Status: Disconnected</div>
+
+        <button onclick="connectBLE()" id="connectBLE">Connect to Sensor</button>
+        <button class="danger" onclick="disconnectBLE()">Disconnect</button>
+
+        <hr>
+
+        <div class="sensor-label">CO2 &mdash; MH-Z16</div>
+        <p class="hint">Zero-point calibration. Sensor must be in clean reference air (~400 ppm) and warmed up.</p>
+        <button class="calib-btn" id="co2Btn" onclick="triggerCO2()" disabled>Start CO2 (MH-Z16) Calibration</button>
+
+        <div class="sensor-label">CH4 &mdash; MH441D</div>
+        <p class="hint">Zero-point calibration. Sensor must be in clean reference air and warmed up.</p>
+        <button class="calib-btn" id="ch4Btn" onclick="triggerCH4()" disabled>Start CH4 (MH441D) Calibration</button>
+    </div>
+
+    <script>
+        const SERVICE   = '0000181a-0000-1000-8000-00805f9b34fb';   // Environmental Sensing Service
+        const CO2_CALIB = '43b7dc21-a63a-4fe3-8ef0-9cfb6bfd7205';   // CO2 (MH-Z16) Calibration Trigger
+        const CH4_CALIB = '7f3e9a14-c25b-4d8e-a1f0-b6efc652d390';   // CH4 (MH441D) Calibration Trigger
+
+        // Firmware write layout: [target, action, magic]. Magic key = 0xAA.
+        const CO2_PAYLOAD = [0x03, 0x00, 0xAA];
+        const CH4_PAYLOAD = [0x04, 0x00, 0xAA];
+
+        let bleDevice;
+        let co2Characteristic;
+        let ch4Characteristic;
+
+        async function connectBLE() {
+            try {
+                document.getElementById('connectBLE').disabled = true;
+                document.getElementById('status').innerText = "Searching for sensor...";
+
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'CowBarn' }],
+                    optionalServices: [SERVICE]
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE);
+
+                co2Characteristic = await service.getCharacteristic(CO2_CALIB);
+                ch4Characteristic = await service.getCharacteristic(CH4_CALIB);
+
+                document.getElementById('connectBLE').innerText = "Connected to " + bleDevice.name;
+                document.getElementById('status').innerText = "Connected to " + bleDevice.name;
+                document.getElementById('co2Btn').disabled = false;
+                document.getElementById('ch4Btn').disabled = false;
+
+            } catch (error) {
+                console.error("Connection failed:", error);
+                document.getElementById('status').innerText = "Error: " + error.message;
+                document.getElementById('connectBLE').disabled = false;
+            }
+        }
+
+        function triggerCO2() {
+            triggerCalibration(co2Characteristic, CO2_PAYLOAD, "CO2 (MH-Z16)");
+        }
+
+        function triggerCH4() {
+            triggerCalibration(ch4Characteristic, CH4_PAYLOAD, "CH4 (MH441D)");
+        }
+
+        async function triggerCalibration(characteristic, bytes, label) {
+            if (!characteristic) {
+                alert("Please connect to the sensor first.");
+                return;
+            }
+
+            if (!confirm("Start " + label + " zero-point calibration?\n\n" +
+                         "Make sure the sensor is in clean / reference air and has warmed up. " +
+                         "This overwrites the current calibration and cannot be undone.")) {
+                return;
+            }
+
+            try {
+                document.getElementById('status').innerText = "Sending " + label + " calibration command...";
+                await characteristic.writeValueWithResponse(new Uint8Array(bytes));
+
+                // Fire-and-forget: the firmware does not report calibration completion over BLE.
+                // The device LED turns cyan for ~10 s while it calibrates.
+                document.getElementById('status').innerText =
+                    label + " command sent — watch for the device LED to turn cyan (~10 s).";
+            } catch (error) {
+                console.error("Calibration write failed:", error);
+                document.getElementById('status').innerText = "Write Error: " + error.message;
+            }
+        }
+
+        function disconnectBLE() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            }
+        }
+
+        function onDisconnected() {
+            document.getElementById('status').innerText = "Disconnected";
+            document.getElementById('connectBLE').innerText = "Connect to Sensor";
+            document.getElementById('connectBLE').disabled = false;
+            document.getElementById('co2Btn').disabled = true;
+            document.getElementById('ch4Btn').disabled = true;
+            co2Characteristic = null;
+            ch4Characteristic = null;
+        }
+    </script>
+</body>
+</html>

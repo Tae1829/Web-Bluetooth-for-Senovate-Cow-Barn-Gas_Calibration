@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sensor Calibration - Connect</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px 20px; background: #f4f4f9; }
+        .btn {
+            display: inline-block; padding: 15px 30px; font-size: 18px;
+            font-weight: bold; color: white; background: #007bff;
+            text-decoration: none; border-radius: 10px; margin: 10px;
+        }
+        .ios-only { display: none; }
+        .instructions { color: #666; margin-top: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <h2>Sensor Calibration Link</h2>
+    <p id="msg">Detecting your browser...</p>
+
+    <div id="ios-bridge" class="ios-only">
+        <a id="bluefyLink" href="#" class="btn">🚀 Open in Bluefy App</a>
+        <p style="margin-top: 20px; color: #666;">Redirect not working?</p>
+        <button onclick="copyUrlToClipboard()" style="background: none; border: 1px solid #ccc; padding: 5px 10px; cursor: pointer; border-radius: 5px;">
+            📋 Copy URL to paste manually
+        </button>
+        <div class="instructions">
+            <p>iOS Safari does not support Bluetooth.</p>
+            <p>Tap above to switch to the Bluefy Browser.</p>
+            <p><small>Don't have it? <a href="https://apps.apple.com/app/id1492822055">Download Bluefy on App Store</a></small></p>
+        </div>
+    </div>
+
+    <script>
+        const currentPath = window.location.pathname;
+        const dir = currentPath.substring(0, currentPath.lastIndexOf('/'));
+        const calibUrl = window.location.origin + dir + "/calibration.html";
+
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isBluefy = navigator.userAgent.includes("Bluefy");
+
+        if (isBluefy || !isIOS) {
+            window.location.replace(calibUrl);
+        } else {
+            document.getElementById('msg').innerText = "iOS Device Detected";
+            document.getElementById('ios-bridge').style.display = "block";
+
+            // Prepend bluefy:// to the FULL https URL
+            const bluefyUrl = "bluefy://" + calibUrl;
+            document.getElementById('bluefyLink').href = bluefyUrl;
+        }
+
+        // Fail-safe: Manual Copy Function
+        function copyUrlToClipboard() {
+            navigator.clipboard.writeText(calibUrl).then(() => {
+                alert("URL Copied! Now open Bluefy and paste it in the address bar.");
+            });
+        }
+    </script>
+</body>
+</html>
